@@ -1,0 +1,20 @@
+# Python
+server/__pycache__/
+server/**/__pycache__/
+server/.venv/
+server/venv/
+server/analizador.db
+
+# env files (nunca subir claves)
+.env
+.env.local
+server/.env
+web/.env
+
+# Node / Vite
+web/node_modules/
+web/dist/
+
+# Sistema
+.DS_Store
+Thumbs.db

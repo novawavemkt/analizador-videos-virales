@@ -118,16 +118,15 @@ web/             Frontend (React + Vite)
 ### "TikTok: Unexpected response from webpage request"
 
 A veces TikTok bloquea las peticiones de `yt-dlp` (le pasa a **todo el mundo**
-que use yt-dlp, no es un problema de esta app ni de tu configuración). Se
-puede confirmar así: si el mismo error aparece incluso con la última versión
-de yt-dlp y con cookies configuradas, es un fallo temporal del extractor de
-TikTok en yt-dlp — hay que esperar a que lo arreglen (yt-dlp se actualiza muy
-seguido, normalmente en días). Mientras tanto, Instagram no suele verse
-afectado.
+que use yt-dlp, no es un problema de esta app ni de tu configuración) — un
+fallo temporal del extractor de TikTok en yt-dlp.
 
-Para comprobar si ya hay arreglo:
+**La app ya lo gestiona sola**: si yt-dlp falla, prueba automáticamente con
+[gallery-dl](https://github.com/mikf/gallery-dl) (mantenido de forma
+independiente) como plan B, sin que tengas que hacer nada. Si ambos fallan a
+la vez, sí es un bloqueo real — prueba a actualizar:
 ```bash
-pip install --upgrade yt-dlp
+pip install --upgrade yt-dlp gallery-dl
 ```
 
 ### "Instagram sent an empty media response" / posts que no descargan

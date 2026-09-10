@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
-import { getVideo, reanalyzeVideo, frameUrl, type VideoData, type Segment, type Frame } from "../api";
+import {
+  getVideo,
+  reanalyzeVideo,
+  frameUrl,
+  listVideos,
+  getClientProfile,
+  saveClientProfile,
+  type VideoData,
+  type Segment,
+  type Frame,
+} from "../api";
 import { AWARENESS_LABELS, AWARENESS_COLORS } from "../awareness";
 
 export default function VideoDetail() {
@@ -11,6 +21,12 @@ export default function VideoDetail() {
   const [frames, setFrames] = useState<Frame[]>([]);
   const [notas, setNotas] = useState("");
   const [regenerating, setRegenerating] = useState(false);
+  const [clientHistory, setClientHistory] = useState<VideoData[]>([]);
+  const [angulo, setAngulo] = useState("");
+  const [avatar, setAvatar] = useState("");
+  const [posicionamiento, setPosicionamiento] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -30,6 +46,36 @@ export default function VideoDetail() {
     const interval = setInterval(fetchData, 2500);
     return () => clearInterval(interval);
   }, [video, fetchData]);
+
+  useEffect(() => {
+    if (!video || video.status !== "done" || !video.autor) {
+      setClientHistory([]);
+      return;
+    }
+    listVideos().then((all) => {
+      setClientHistory(
+        all.filter((v) => v.autor === video.autor && v.id !== video.id && v.status === "done")
+      );
+    });
+  }, [video]);
+
+  useEffect(() => {
+    if (!video || video.status !== "done" || !video.autor) return;
+    getClientProfile(video.autor).then((p) => {
+      setAngulo(p.angulo || "");
+      setAvatar(p.avatar || "");
+      setPosicionamiento(p.posicionamiento || "");
+    });
+  }, [video?.id, video?.autor, video?.status]);
+
+  async function handleSaveProfile() {
+    if (!video?.autor) return;
+    setSavingProfile(true);
+    await saveClientProfile(video.autor, { angulo, avatar, posicionamiento });
+    setSavingProfile(false);
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 2000);
+  }
 
   async function handleRegenerate() {
     if (!video) return;
@@ -84,7 +130,84 @@ export default function VideoDetail() {
             {video.puntuacion_media.toFixed(1)}/10
           </span>
         )}
+        {video.filtro_angulo_pasa != null && (
+          <span className="badge" style={{ background: video.filtro_angulo_pasa ? "#10b981" : "#ef4444" }}>
+            {video.filtro_angulo_pasa ? "✓ Ángulo" : "✗ Ángulo"}
+          </span>
+        )}
+        {video.filtro_avatar_pasa != null && (
+          <span className="badge" style={{ background: video.filtro_avatar_pasa ? "#10b981" : "#ef4444" }}>
+            {video.filtro_avatar_pasa ? "✓ Avatar" : "✗ Avatar"}
+          </span>
+        )}
       </div>
+
+      {video.filtro_explicacion && (
+        <p className="muted small" style={{ marginTop: "0.5rem" }}>
+          {video.filtro_explicacion}
+        </p>
+      )}
+
+      {clientHistory.length > 0 && (
+        <section>
+          <h2>Historial de este cliente ({video.autor})</h2>
+          <div className="list">
+            {clientHistory.map((v) => (
+              <Link key={v.id} to={`/videos/${v.id}`} className="list-item">
+                <div className="row" style={{ justifyContent: "space-between", marginTop: 0 }}>
+                  <span className="truncate">{v.hook || v.url}</span>
+                  {v.puntuacion_media != null && (
+                    <span className="muted small">{v.puntuacion_media.toFixed(1)}/10</span>
+                  )}
+                </div>
+                <div className="tags small">
+                  {v.formato && <span className="badge">{v.formato}</span>}
+                  {v.awareness_overall && (
+                    <span className="badge">{AWARENESS_LABELS[v.awareness_overall] || v.awareness_overall}</span>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+          <p className="muted small" style={{ marginTop: "0.5rem" }}>
+            El informe de arriba ya tiene en cuenta este historial al generarse.
+          </p>
+        </section>
+      )}
+
+      {video.autor && (
+        <section>
+          <h2>Perfil del cliente ({video.autor}) — ángulo / avatar / posicionamiento</h2>
+          <p className="muted small">
+            Definelo una vez para esta cuenta y todos sus vídeos se evaluarán contra este perfil
+            (filtro de ángulo/avatar, Módulo 1-2 Nova Wave). Guarda y regenera el análisis para
+            que el informe lo tenga en cuenta.
+          </p>
+          <textarea
+            value={angulo}
+            onChange={(e) => setAngulo(e.target.value)}
+            placeholder="Ángulo: hablar de [tema] desde [perspectiva] para ayudar a [audiencia] a conseguir [resultado]"
+            rows={2}
+          />
+          <textarea
+            value={avatar}
+            onChange={(e) => setAvatar(e.target.value)}
+            placeholder="Avatar: cómo es, cómo piensa, qué le duele, qué quiere..."
+            rows={2}
+          />
+          <textarea
+            value={posicionamiento}
+            onChange={(e) => setPosicionamiento(e.target.value)}
+            placeholder="Posicionamiento: atributo de relación / autoridad / diferenciador"
+            rows={2}
+          />
+          <div className="row">
+            <button onClick={handleSaveProfile} disabled={savingProfile}>
+              {savingProfile ? "Guardando..." : profileSaved ? "Guardado ✓" : "Guardar perfil"}
+            </button>
+          </div>
+        </section>
+      )}
 
       {video.awareness_overall && (
         <section>

@@ -94,7 +94,8 @@ def list_videos():
     rows = conn.execute(
         """
         SELECT id, url, platform, autor, status, duration_seconds, view_count, like_count,
-               hook, formato, nicho, awareness_overall, puntuacion_media, created_at
+               hook, formato, nicho, awareness_overall, puntuacion_media,
+               filtro_angulo_pasa, filtro_avatar_pasa, created_at
         FROM videos ORDER BY created_at DESC LIMIT 200
         """
     ).fetchall()
@@ -142,3 +143,42 @@ def get_frame(video_id: int, frame_id: int):
     if not frame:
         raise HTTPException(404, "No encontrado.")
     return Response(content=frame["image_bytes"], media_type=frame["content_type"])
+
+
+class ClientProfileRequest(BaseModel):
+    angulo: str | None = None
+    avatar: str | None = None
+    posicionamiento: str | None = None
+
+
+@app.get("/api/clients/{autor}")
+def get_client_profile_endpoint(autor: str):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT autor, angulo, avatar, posicionamiento, updated_at FROM client_profiles WHERE autor = ?",
+        (autor,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {"autor": autor, "angulo": None, "avatar": None, "posicionamiento": None, "updated_at": None}
+    return dict(row)
+
+
+@app.put("/api/clients/{autor}")
+def save_client_profile(autor: str, body: ClientProfileRequest):
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT INTO client_profiles (autor, angulo, avatar, posicionamiento, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(autor) DO UPDATE SET
+            angulo = excluded.angulo,
+            avatar = excluded.avatar,
+            posicionamiento = excluded.posicionamiento,
+            updated_at = datetime('now')
+        """,
+        (autor, body.angulo, body.avatar, body.posicionamiento),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}

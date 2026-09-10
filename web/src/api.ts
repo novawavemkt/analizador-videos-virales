@@ -20,7 +20,18 @@ export interface VideoData {
   notas_manuales: string | null;
   informe_markdown: string | null;
   puntuacion_media: number | null;
+  filtro_angulo_pasa: 0 | 1 | null;
+  filtro_avatar_pasa: 0 | 1 | null;
+  filtro_explicacion: string | null;
   created_at: string;
+}
+
+export interface ClientProfile {
+  autor: string;
+  angulo: string | null;
+  avatar: string | null;
+  posicionamiento: string | null;
+  updated_at: string | null;
 }
 
 export interface Segment {
@@ -79,4 +90,20 @@ export async function getVideo(
 
 export function frameUrl(videoId: number, frameId: number) {
   return `${API_BASE}/api/videos/${videoId}/frames/${frameId}`;
+}
+
+export async function getClientProfile(autor: string): Promise<ClientProfile> {
+  const res = await fetch(`${API_BASE}/api/clients/${encodeURIComponent(autor)}`);
+  return res.json();
+}
+
+export async function saveClientProfile(
+  autor: string,
+  profile: { angulo: string; avatar: string; posicionamiento: string }
+): Promise<void> {
+  await fetch(`${API_BASE}/api/clients/${encodeURIComponent(autor)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
 }

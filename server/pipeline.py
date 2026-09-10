@@ -7,6 +7,7 @@ SQLite local en vez de Postgres.
 """
 
 import os
+import re
 import json
 import base64
 import shutil
@@ -155,18 +156,23 @@ arriba, debes devolver SOLO un JSON valido (sin texto fuera del JSON) con esta
 forma exacta:
 
 {{
-  "informe_markdown": "<el informe completo, secciones 1 a 9, usando los mismos titulos '### 1. Resumen ejecutivo' etc., listo para pegar tal cual>",
+  "informe_markdown": "<el informe completo: secciones 1 a 9 tal como pide la ESTRUCTURA DE SALIDA, usando los mismos titulos '### 1. Resumen ejecutivo' etc., MAS una seccion adicional '### 10. Filtro de angulo y avatar (Nova Wave)' explicando el resultado del filtro (ver abajo). Listo para pegar tal cual>",
   "nivel_consciencia": "<una de: {', '.join(AWARENESS_STAGES)}>",
   "segments": [
     {{"start": <segundos>, "end": <segundos>, "awareness_stage": "<una de las 5 etapas>"}}
   ],
   "nicho": "<mejor estimacion del nicho/industria del video, ej. dental, fitness, belleza, finanzas...>",
-  "formato": "<framework narrativo detectado en la seccion 3, ej. PAS, AIDA, Antes-Despues-Puente, storytelling, listicle...>",
+  "formato": "<estructura viral detectada - usa preferentemente una de las 7 de perfil_cliente/formacion si aplica (Hablar a camara, Doble personaje, Pantalla verde/reaccion, Elecciones y rankings, Entrevista en la calle, Noticia de TV/prensa, Tutorial camuflado); si no encaja en ninguna, usa el framework narrativo clasico (PAS, AIDA, Antes-Despues-Puente, storytelling, listicle...)>",
   "hook": "<resumen del hook en 1 frase corta, para mostrar en listados>",
   "puntuacion": {{
     "hook": <1-10>, "claridad_mensaje": <1-10>, "ejecucion_tecnica": <1-10>,
     "potencial_guardado_compartido": <1-10>, "cta": <1-10>, "alineacion_consciencia": <1-10>,
     "media": <numero, promedio de los 6 ejes>
+  }},
+  "filtro_angulo_avatar": {{
+    "pasa_angulo": <true/false>,
+    "pasa_avatar": <true/false>,
+    "explicacion": "<2-4 frases: si no hay perfil_cliente declarado, dilo y pon ambos en null; si lo hay, aplica el filtro de dos preguntas del Modulo 1-2 de Nova Wave: 1) esta idea entra dentro del angulo declarado, 2) el avatar declarado consumiria este contenido facilmente>"
   }}
 }}
 
@@ -175,6 +181,21 @@ Usa "segments" para dividir el video en 2-6 tramos narrativos con timestamps
 etapa de conciencia de Eugene Schwartz a la que apela en ese momento — esto es
 un desglose adicional para la interfaz, coherente con lo que digas en la
 seccion 2 del informe pero mas granular.
+
+## FILTRO DE ANGULO Y AVATAR (metodologia interna Nova Wave, Modulo 1-2)
+
+Si se proporciona `perfil_cliente` (angulo, avatar y posicionamiento declarados
+por esta cuenta), aplica el filtro de dos preguntas exactamente como lo define
+el Modulo 1-2 del curso interno:
+1. ¿Esta idea entra dentro del angulo declarado? Si el video se aleja del
+   angulo, señalalo claramente — confunde el posicionamiento aunque el video
+   sea bueno en si mismo.
+2. ¿El avatar declarado consumiria este contenido facilmente? Si el tono, el
+   lenguaje o el tema no encajan con ese avatar, señalalo.
+Redacta la seccion 10 del informe con el resultado de ambas preguntas y una
+recomendacion concreta si alguna falla. Si no hay `perfil_cliente` guardado
+para esta cuenta, dilo en una linea en la seccion 10 y no fuerces un
+veredicto (deja pasa_angulo/pasa_avatar en null en el JSON).
 """
 
 CLASSIFICATION_SYSTEM_PROMPT = MASTER_PROMPT + TECHNICAL_ADDENDUM
@@ -223,7 +244,10 @@ def transcribe_with_segments(client, mp3_path):
     return result.text, segments
 
 
-def classify_video(client, transcript_segments, frame_paths, meta, url, notas_manuales=None):
+def classify_video(
+    client, transcript_segments, frame_paths, meta, url,
+    notas_manuales=None, autor=None, video_id=None, perfil_cliente=None,
+):
     segments_text = "\n".join(
         f"[{s['start']:.1f}s - {s['end']:.1f}s] {s['text']}" for s in transcript_segments
     )
@@ -231,12 +255,19 @@ def classify_video(client, transcript_segments, frame_paths, meta, url, notas_ma
     metadata_text = "\n".join(
         [
             f"plataforma: {detect_platform(url)}",
+            f"autor: {autor or '(no disponible)'}",
             f"duracion_segundos: {meta.get('duration')}",
             f"caption: {meta.get('description') or '(no disponible)'}",
             f"audio_usado: {(meta.get('music') or {}).get('title') if isinstance(meta.get('music'), dict) else meta.get('track') or '(no disponible)'}",
         ]
     )
     metricas_text = f"vistas: {meta.get('view_count')}, likes: {meta.get('like_count')} (guardados/compartidos/comentarios no disponibles via yt-dlp)"
+
+    memoria_cliente = get_client_memory(autor, video_id) if autor else None
+    memoria_text = (
+        memoria_cliente
+        or f"(no hay analisis previos guardados para {autor})" if autor else "(no disponible - no se detecto autor)"
+    )
 
     user_text = f"""transcripcion:
 {segments_text or '(no disponible)'}
@@ -255,6 +286,16 @@ notas_manuales:
 
 sector_cliente:
 (no proporcionado)
+
+perfil_cliente (angulo, avatar y posicionamiento declarados para esta cuenta, Modulo 1-2 Nova Wave):
+{perfil_cliente or f"(no hay perfil guardado para {autor or 'esta cuenta'} todavia)"}
+
+historial_cliente (analisis previos de esta misma cuenta, mas recientes primero):
+{memoria_text}
+Si hay historial, usalo para dar continuidad: senala si se repiten patrones (positivos o
+negativos) entre videos de esta cuenta, si aplico alguna recomendacion que ya le diste antes
+(y si funciono, segun las metricas), y evita repetir recomendaciones ya dadas salvo que sigan
+sin resolverse - en ese caso, dilo explicitamente.
 
 Se adjuntan los fotogramas clave del video (portada/hook y siguientes) como `frames`."""
 
@@ -291,6 +332,69 @@ def detect_autor(meta):
     return autor
 
 
+def extract_section(markdown, header_text):
+    """Saca el contenido de una seccion '### N. Titulo' del informe generado."""
+    if not markdown:
+        return ""
+    pattern = rf"###\s*\d+\.\s*{re.escape(header_text)}\s*\n(.*?)(?=\n###\s*\d+\.|\Z)"
+    m = re.search(pattern, markdown, re.DOTALL | re.IGNORECASE)
+    return m.group(1).strip() if m else ""
+
+
+def get_client_memory(autor, exclude_video_id, limit=3):
+    """Resumen de los ultimos analisis ya hechos para el mismo @autor (cliente),
+    para dar continuidad entre videos en vez de analizar cada uno aislado."""
+    if not autor:
+        return None
+
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT hook, puntuacion_media, informe_markdown, created_at
+        FROM videos
+        WHERE autor = ? AND status = 'done' AND id != ?
+        ORDER BY created_at DESC LIMIT ?
+        """,
+        (autor, exclude_video_id, limit),
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return None
+
+    parts = []
+    for r in rows:
+        resumen = extract_section(r["informe_markdown"], "Resumen ejecutivo")
+        recomendaciones = extract_section(r["informe_markdown"], "Recomendaciones concretas")
+        parts.append(
+            f"- Video del {(r['created_at'] or '')[:10]} (puntuacion {r['puntuacion_media']}/10). "
+            f"Hook: {r['hook']}. Resumen: {resumen[:300]}. "
+            f"Recomendaciones que ya se le dieron: {recomendaciones[:400]}"
+        )
+    return "\n".join(parts)
+
+
+def get_client_profile(autor):
+    """Angulo/avatar/posicionamiento declarados para esta cuenta (Modulo 1-2
+    Nova Wave), si el usuario los ha rellenado en la app. Devuelve texto listo
+    para meter en el prompt, o None si no hay perfil guardado."""
+    if not autor:
+        return None
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT angulo, avatar, posicionamiento FROM client_profiles WHERE autor = ?",
+        (autor,),
+    ).fetchone()
+    conn.close()
+    if not row or not (row["angulo"] or row["avatar"] or row["posicionamiento"]):
+        return None
+    return (
+        f"Angulo: {row['angulo'] or '(no definido)'}\n"
+        f"Avatar: {row['avatar'] or '(no definido)'}\n"
+        f"Posicionamiento: {row['posicionamiento'] or '(no definido)'}"
+    )
+
+
 def mark_error(video_id, message):
     conn = get_connection()
     conn.execute(
@@ -303,6 +407,11 @@ def mark_error(video_id, message):
 
 def save_result(video_id, url, meta, transcript, classification, frame_files, notas_manuales=None):
     puntuacion = classification.get("puntuacion") or {}
+    filtro = classification.get("filtro_angulo_avatar") or {}
+
+    def to_bool_int(v):
+        return None if v is None else (1 if v else 0)
+
     conn = get_connection()
     conn.execute(
         """
@@ -310,6 +419,7 @@ def save_result(video_id, url, meta, transcript, classification, frame_files, no
             status = 'done', platform = ?, autor = ?, duration_seconds = ?, view_count = ?,
             like_count = ?, hook = ?, formato = ?, nicho = ?, awareness_overall = ?,
             transcript = ?, notas_manuales = ?, informe_markdown = ?, puntuacion_media = ?,
+            filtro_angulo_pasa = ?, filtro_avatar_pasa = ?, filtro_explicacion = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -327,6 +437,9 @@ def save_result(video_id, url, meta, transcript, classification, frame_files, no
             notas_manuales,
             classification.get("informe_markdown"),
             puntuacion.get("media"),
+            to_bool_int(filtro.get("pasa_angulo")),
+            to_bool_int(filtro.get("pasa_avatar")),
+            filtro.get("explicacion"),
             video_id,
         ),
     )
@@ -374,7 +487,12 @@ def process_video(video_id, url, notas_manuales=None):
         frame_files = extract_frames(video_path, tmp_dir)
 
         transcript, segments = transcribe_with_segments(client, audio_path)
-        classification = classify_video(client, segments, frame_files, meta, url, notas_manuales)
+        autor = detect_autor(meta)
+        perfil_cliente = get_client_profile(autor)
+        classification = classify_video(
+            client, segments, frame_files, meta, url, notas_manuales,
+            autor=autor, video_id=video_id, perfil_cliente=perfil_cliente,
+        )
 
         save_result(video_id, url, meta, transcript, classification, frame_files, notas_manuales)
     except Exception as e:

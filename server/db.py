@@ -29,8 +29,19 @@ CREATE TABLE IF NOT EXISTS videos (
     notas_manuales      TEXT,
     informe_markdown    TEXT,
     puntuacion_media    REAL,
+    filtro_angulo_pasa  INTEGER,
+    filtro_avatar_pasa  INTEGER,
+    filtro_explicacion  TEXT,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS client_profiles (
+    autor           TEXT PRIMARY KEY,
+    angulo          TEXT,
+    avatar          TEXT,
+    posicionamiento TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS video_segments (
@@ -72,6 +83,12 @@ def _migrate(conn):
         conn.execute("ALTER TABLE videos ADD COLUMN informe_markdown TEXT")
     if "puntuacion_media" not in existing_cols:
         conn.execute("ALTER TABLE videos ADD COLUMN puntuacion_media REAL")
+    if "filtro_angulo_pasa" not in existing_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN filtro_angulo_pasa INTEGER")
+    if "filtro_avatar_pasa" not in existing_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN filtro_avatar_pasa INTEGER")
+    if "filtro_explicacion" not in existing_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN filtro_explicacion TEXT")
 
 
 def init_db():

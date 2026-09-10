@@ -20,8 +20,13 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import json
+
 from db import init_db, get_connection
 from pipeline import process_video, reanalyze_video
+import audit_sheets
+import audit_parser
+from audit_report import render_report
 
 app = FastAPI(title="Analizador de Videos Virales")
 
@@ -182,3 +187,95 @@ def save_client_profile(autor: str, body: ClientProfileRequest):
     conn.commit()
     conn.close()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Feature 2: informes de auditoria desde Google Sheets
+# ---------------------------------------------------------------------------
+
+class CreateAuditRequest(BaseModel):
+    sheet_url: str
+
+
+def _build_audit_from_sheet(sheet_url: str) -> dict:
+    try:
+        sheets = audit_sheets.read_sheet(sheet_url)
+    except FileNotFoundError as e:
+        raise HTTPException(500, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # errores de la API de Google (permisos, red...)
+        raise HTTPException(502, f"No se pudo leer el Google Sheet: {e}")
+    return audit_parser.parse_workbook(sheets)
+
+
+@app.post("/api/audits")
+def create_audit(body: CreateAuditRequest):
+    data = _build_audit_from_sheet(body.sheet_url)
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO audit_reports (sheet_url, cliente, data_json) VALUES (?, ?, ?)",
+        (body.sheet_url.strip(), data.get("cliente"), json.dumps(data, ensure_ascii=False)),
+    )
+    audit_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": audit_id, "cliente": data.get("cliente")}
+
+
+@app.post("/api/audits/{audit_id}/refresh")
+def refresh_audit(audit_id: int):
+    conn = get_connection()
+    row = conn.execute("SELECT sheet_url FROM audit_reports WHERE id = ?", (audit_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "No encontrado.")
+    conn.close()
+
+    data = _build_audit_from_sheet(row["sheet_url"])
+    conn = get_connection()
+    conn.execute(
+        "UPDATE audit_reports SET cliente = ?, data_json = ?, updated_at = datetime('now') WHERE id = ?",
+        (data.get("cliente"), json.dumps(data, ensure_ascii=False), audit_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "cliente": data.get("cliente")}
+
+
+@app.get("/api/audits")
+def list_audits():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, cliente, sheet_url, created_at, updated_at FROM audit_reports ORDER BY created_at DESC LIMIT 200"
+    ).fetchall()
+    conn.close()
+    return {"audits": [dict(r) for r in rows]}
+
+
+@app.get("/api/audits/{audit_id}")
+def get_audit(audit_id: int):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM audit_reports WHERE id = ?", (audit_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "No encontrado.")
+    return {
+        "id": row["id"],
+        "cliente": row["cliente"],
+        "sheet_url": row["sheet_url"],
+        "data": json.loads(row["data_json"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+@app.get("/api/audits/{audit_id}/report")
+def get_audit_report(audit_id: int):
+    conn = get_connection()
+    row = conn.execute("SELECT data_json FROM audit_reports WHERE id = ?", (audit_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "No encontrado.")
+    html = render_report(json.loads(row["data_json"]))
+    return Response(content=html, media_type="text/html; charset=utf-8")

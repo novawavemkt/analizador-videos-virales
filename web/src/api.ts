@@ -93,6 +93,53 @@ export function frameUrl(videoId: number, frameId: number) {
   return `${API_BASE}/api/videos/${videoId}/frames/${frameId}`;
 }
 
+// --- Feature 2: informes de auditoria ---
+
+export interface AuditSummary {
+  id: number;
+  cliente: string | null;
+  sheet_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createAudit(sheetUrl: string): Promise<{ id: number; cliente: string | null }> {
+  const res = await fetch(`${API_BASE}/api/audits`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sheet_url: sheetUrl }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "No se pudo generar el informe.");
+  }
+  return res.json();
+}
+
+export async function refreshAudit(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/audits/${id}/refresh`, { method: "POST" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "No se pudo actualizar el informe.");
+  }
+}
+
+export async function listAudits(): Promise<AuditSummary[]> {
+  const res = await fetch(`${API_BASE}/api/audits`);
+  const data = await res.json();
+  return data.audits;
+}
+
+export async function getAudit(id: string): Promise<{ id: number; cliente: string | null; sheet_url: string }> {
+  const res = await fetch(`${API_BASE}/api/audits/${id}`);
+  if (!res.ok) throw new Error("No encontrado.");
+  return res.json();
+}
+
+export function auditReportUrl(id: number | string) {
+  return `${API_BASE}/api/audits/${id}/report`;
+}
+
 export async function getClientProfile(autor: string): Promise<ClientProfile> {
   const res = await fetch(`${API_BASE}/api/clients/${encodeURIComponent(autor)}`);
   return res.json();

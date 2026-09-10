@@ -95,7 +95,7 @@ def list_videos():
         """
         SELECT id, url, platform, autor, status, duration_seconds, view_count, like_count,
                hook, formato, nicho, awareness_overall, puntuacion_media,
-               filtro_angulo_pasa, filtro_avatar_pasa, created_at
+               filtro_angulo_pasa, filtro_avatar_pasa, potencial_viral, created_at
         FROM videos ORDER BY created_at DESC LIMIT 200
         """
     ).fetchall()

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS videos (
     filtro_angulo_pasa  INTEGER,
     filtro_avatar_pasa  INTEGER,
     filtro_explicacion  TEXT,
+    potencial_viral     REAL,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -89,6 +90,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE videos ADD COLUMN filtro_avatar_pasa INTEGER")
     if "filtro_explicacion" not in existing_cols:
         conn.execute("ALTER TABLE videos ADD COLUMN filtro_explicacion TEXT")
+    if "potencial_viral" not in existing_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN potencial_viral REAL")
 
 
 def init_db():

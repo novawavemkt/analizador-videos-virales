@@ -156,7 +156,7 @@ arriba, debes devolver SOLO un JSON valido (sin texto fuera del JSON) con esta
 forma exacta:
 
 {{
-  "informe_markdown": "<el informe completo: secciones 1 a 9 tal como pide la ESTRUCTURA DE SALIDA, usando los mismos titulos '### 1. Resumen ejecutivo' etc., MAS una seccion adicional '### 10. Filtro de angulo y avatar (Nova Wave)' explicando el resultado del filtro (ver abajo). Listo para pegar tal cual>",
+  "informe_markdown": "<el informe completo: secciones 1 a 9 tal como pide la ESTRUCTURA DE SALIDA, usando los mismos titulos '### 1. Resumen ejecutivo' etc., MAS '### 10. Filtro de angulo y avatar (Nova Wave)' y '### 11. Potencial viral (segun metricas reales)' (ver ambos abajo). Listo para pegar tal cual>",
   "nivel_consciencia": "<una de: {', '.join(AWARENESS_STAGES)}>",
   "segments": [
     {{"start": <segundos>, "end": <segundos>, "awareness_stage": "<una de las 5 etapas>"}}
@@ -173,7 +173,8 @@ forma exacta:
     "pasa_angulo": <true/false>,
     "pasa_avatar": <true/false>,
     "explicacion": "<2-4 frases: si no hay perfil_cliente declarado, dilo y pon ambos en null; si lo hay, aplica el filtro de dos preguntas del Modulo 1-2 de Nova Wave: 1) esta idea entra dentro del angulo declarado, 2) el avatar declarado consumiria este contenido facilmente>"
-  }}
+  }},
+  "potencial_viral": <numero 1-10: nota de potencial viral. Si hay metricas_reales, basala PRINCIPALMENTE en el rendimiento real observado (ver seccion de abajo). Si NO hay metricas, estimala por el mecanismo del video>
 }}
 
 Usa "segments" para dividir el video en 2-6 tramos narrativos con timestamps
@@ -181,6 +182,36 @@ Usa "segments" para dividir el video en 2-6 tramos narrativos con timestamps
 etapa de conciencia de Eugene Schwartz a la que apela en ese momento — esto es
 un desglose adicional para la interfaz, coherente con lo que digas en la
 seccion 2 del informe pero mas granular.
+
+## USO DE LAS METRICAS REALES (importante)
+
+Si `metricas_reales` trae vistas y/o likes, son EVIDENCIA DURA del rendimiento
+real — no una hipotesis. Reglas:
+
+- Un video con muchas vistas (cientos de miles o millones) YA ha demostrado que
+  su hook retiene y que el formato funciona. NO escribas cosas como "no esta
+  claro si mantiene al espectador" cuando las vistas lo contradicen: si tiene
+  2M de vistas, SI mantiene al espectador. Reconocelo explicitamente.
+- No bajes las notas de las secciones 5 y 6 (algoritmo, puntuacion) solo porque
+  el copywriting sea "de manual" o basico. Si el video funciona con metricas
+  reales, el trabajo del analisis es explicar POR QUE funciono (formato, nicho,
+  valor de guardado, gancho de "quedate a ver si sale tu caso", etc.) y como
+  REPLICAR ese mecanismo — no penalizarlo por no seguir un checklist de copy.
+- Calcula el ratio de engagement aproximado (likes / vistas) y comentalo:
+  <2% es flojo, 2-5% normal, 5-8% bueno, >8% excelente para su tamaño.
+- Las recomendaciones (seccion 7) deben ser mejoras marginales sobre algo que
+  YA funciona, no un rediseño de un video exitoso.
+
+## SECCION 11 — POTENCIAL VIRAL (segun metricas reales)
+
+Anade al final del informe una seccion `### 11. Potencial viral (segun metricas reales)`:
+- Si hay metricas: di las vistas y likes reales, el ratio de engagement y su
+  lectura (flojo/normal/bueno/excelente), y explica en 2-4 frases QUE hizo que
+  este video rindiera asi (mecanismo concreto, no generalidades). Cierra con
+  una nota de potencial viral de 1 a 10 justificada por el rendimiento real.
+- Si NO hay metricas: dilo en una linea y da una estimacion de potencial viral
+  (1-10) basada solo en el mecanismo del video, marcandola como estimacion.
+El numero que pongas aqui debe coincidir con el campo "potencial_viral" del JSON.
 
 ## FILTRO DE ANGULO Y AVATAR (metodologia interna Nova Wave, Modulo 1-2)
 
@@ -201,23 +232,96 @@ veredicto (deja pasa_angulo/pasa_avatar en null en el JSON).
 CLASSIFICATION_SYSTEM_PROMPT = MASTER_PROMPT + TECHNICAL_ADDENDUM
 
 
-# TikTok (y a veces Instagram) bloquean peticiones anonimas de yt-dlp con
-# "Unexpected response from webpage request". Usar cookies de una sesion
-# logueada suele arreglarlo. Dos formas, configurables por .env:
-#   COOKIES_FILE=ruta/a/cookies.txt   -> mas fiable en Windows (evita el
-#     cifrado DPAPI de Chromium), exportado con una extension del navegador.
-#   COOKIES_FROM_BROWSER=brave        -> lee directo del navegador (requiere
-#     tenerlo completamente cerrado). Si ambas estan definidas, gana COOKIES_FILE.
+# TikTok e Instagram bloquean peticiones anonimas: TikTok da "Unexpected
+# response from webpage request" y Instagram esconde el numero de vistas tras
+# login. Usar cookies de una sesion logueada lo arregla. Configurable por .env:
+#   COOKIES_FILE=cookies.txt              -> un archivo (puede tener varios dominios)
+#   COOKIES_FILE=tiktok.txt,instagram.txt -> varios archivos, se fusionan
+#   COOKIES_FROM_BROWSER=brave            -> lee directo del navegador (requiere
+#     tenerlo cerrado). Si COOKIES_FILE esta definido, gana COOKIES_FILE.
 COOKIES_FILE = os.environ.get("COOKIES_FILE", "").strip()
 COOKIES_FROM_BROWSER = os.environ.get("COOKIES_FROM_BROWSER", "").strip()
 
+_MERGED_COOKIES_PATH = None
+
+
+def _resolve_cookies_file():
+    """Devuelve la ruta a un unico archivo de cookies usable por yt-dlp/gallery-dl.
+    Si COOKIES_FILE lista varios archivos separados por coma, los fusiona en uno."""
+    global _MERGED_COOKIES_PATH
+    if not COOKIES_FILE:
+        return None
+    parts = [p.strip() for p in COOKIES_FILE.split(",") if p.strip()]
+    existing = [p for p in parts if os.path.exists(p)]
+    if not existing:
+        return None
+    if len(existing) == 1:
+        return existing[0]
+    if _MERGED_COOKIES_PATH and os.path.exists(_MERGED_COOKIES_PATH):
+        return _MERGED_COOKIES_PATH
+    merged = os.path.join(tempfile.gettempdir(), "analizador_cookies_merged.txt")
+    with open(merged, "w", encoding="utf-8") as out:
+        out.write("# Netscape HTTP Cookie File\n")
+        for p in existing:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.strip() and not line.startswith("#"):
+                        out.write(line if line.endswith("\n") else line + "\n")
+    _MERGED_COOKIES_PATH = merged
+    return merged
+
 
 def _cookie_args():
-    if COOKIES_FILE:
-        return ["--cookies", COOKIES_FILE]
+    cf = _resolve_cookies_file()
+    if cf:
+        return ["--cookies", cf]
     if COOKIES_FROM_BROWSER:
         return ["--cookies-from-browser", COOKIES_FROM_BROWSER]
     return []
+
+
+def _shortcode_to_media_id(shortcode):
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    mid = 0
+    for ch in shortcode:
+        mid = mid * 64 + alphabet.index(ch)
+    return mid
+
+
+def get_instagram_view_count(url):
+    """Instagram no da el numero de vistas a yt-dlp (solo likes/comentarios).
+    Este fallback consulta la API interna de Instagram (api/v1/media/.../info)
+    con las cookies de sesion. Devuelve int o None si no se puede."""
+    import urllib.request
+    import http.cookiejar
+
+    m = re.search(r"instagram\.com/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)", url)
+    if not m:
+        return None
+    cf = _resolve_cookies_file()
+    if not cf:
+        return None
+
+    try:
+        media_id = _shortcode_to_media_id(m.group(1))
+        jar = http.cookiejar.MozillaCookieJar(cf)
+        jar.load(ignore_discard=True, ignore_expires=True)
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        csrf = next((c.value for c in jar if c.name == "csrftoken" and "instagram" in c.domain), "")
+        req = urllib.request.Request(
+            f"https://www.instagram.com/api/v1/media/{media_id}/info/",
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "X-IG-App-ID": "936619743392459",
+                "X-CSRFToken": csrf,
+                "Referer": "https://www.instagram.com/",
+            },
+        )
+        data = json.loads(opener.open(req, timeout=20).read())
+        item = data["items"][0]
+        return item.get("play_count") or item.get("view_count") or item.get("ig_play_count")
+    except Exception:
+        return None
 
 
 def get_metadata(url, workdir):
@@ -240,8 +344,9 @@ def download_video(url, out_path):
 
 def get_metadata_gallery_dl(url, workdir):
     cmd = ["gallery-dl", "-j"]
-    if COOKIES_FILE:
-        cmd += ["--cookies", COOKIES_FILE]
+    _cf = _resolve_cookies_file()
+    if _cf:
+        cmd += ["--cookies", _cf]
     cmd.append(url)
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
     if result.returncode != 0:
@@ -264,8 +369,9 @@ def download_video_gallery_dl(url, out_path):
     out_dir = os.path.dirname(out_path)
     filename = os.path.basename(out_path)
     cmd = ["gallery-dl", "-D", out_dir, "-o", f"filename={filename}"]
-    if COOKIES_FILE:
-        cmd += ["--cookies", COOKIES_FILE]
+    _cf = _resolve_cookies_file()
+    if _cf:
+        cmd += ["--cookies", _cf]
     cmd.append(url)
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0 or not os.path.exists(out_path):
@@ -478,6 +584,7 @@ def save_result(video_id, url, meta, transcript, classification, frame_files, no
             like_count = ?, hook = ?, formato = ?, nicho = ?, awareness_overall = ?,
             transcript = ?, notas_manuales = ?, informe_markdown = ?, puntuacion_media = ?,
             filtro_angulo_pasa = ?, filtro_avatar_pasa = ?, filtro_explicacion = ?,
+            potencial_viral = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -498,6 +605,7 @@ def save_result(video_id, url, meta, transcript, classification, frame_files, no
             to_bool_int(filtro.get("pasa_angulo")),
             to_bool_int(filtro.get("pasa_avatar")),
             filtro.get("explicacion"),
+            classification.get("potencial_viral"),
             video_id,
         ),
     )
@@ -546,6 +654,13 @@ def process_video(video_id, url, notas_manuales=None):
             print(f"[{video_id}] yt-dlp fallo ({yt_dlp_error}), probando con gallery-dl...", flush=True)
             meta = get_metadata_gallery_dl(url, tmp_dir)
             download_video_gallery_dl(url, video_path)
+
+        # Instagram no expone el numero de vistas a yt-dlp -> fallback a su API interna.
+        if "instagram.com" in url and not meta.get("view_count"):
+            ig_views = get_instagram_view_count(url)
+            if ig_views:
+                meta["view_count"] = ig_views
+                print(f"[{video_id}] vistas de Instagram via API interna: {ig_views}", flush=True)
 
         extract_audio(video_path, audio_path)
         frame_files = extract_frames(video_path, tmp_dir)

@@ -23,6 +23,7 @@ export interface VideoData {
   filtro_angulo_pasa: 0 | 1 | null;
   filtro_avatar_pasa: 0 | 1 | null;
   filtro_explicacion: string | null;
+  potencial_viral: number | null;
   created_at: string;
 }
 

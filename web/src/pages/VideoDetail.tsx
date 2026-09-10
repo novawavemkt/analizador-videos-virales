@@ -127,7 +127,12 @@ export default function VideoDetail() {
         {video.formato && <span className="badge">{video.formato}</span>}
         {video.puntuacion_media != null && (
           <span className="badge" style={{ background: "#4f46e5" }}>
-            {video.puntuacion_media.toFixed(1)}/10
+            Craft {video.puntuacion_media.toFixed(1)}/10
+          </span>
+        )}
+        {video.potencial_viral != null && (
+          <span className="badge" style={{ background: "#db2777" }}>
+            Potencial viral {video.potencial_viral.toFixed(1)}/10
           </span>
         )}
         {video.filtro_angulo_pasa != null && (

@@ -233,6 +233,45 @@ def download_video(url, out_path):
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
+# --- Alternativa: gallery-dl ---
+# Cuando yt-dlp falla (ej. bloqueos temporales de TikTok que afectan a su
+# extractor pero no al de gallery-dl, mantenido de forma independiente), se
+# usa como plan B automatico. Necesita el mismo COOKIES_FILE.
+
+def get_metadata_gallery_dl(url, workdir):
+    cmd = ["gallery-dl", "-j"]
+    if COOKIES_FILE:
+        cmd += ["--cookies", COOKIES_FILE]
+    cmd.append(url)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr[-800:])
+    data = json.loads(result.stdout)
+    meta = data[0][1]
+    stats = meta.get("stats", {})
+    video = meta.get("video", {})
+    author = meta.get("author", {})
+    return {
+        "duration": video.get("duration"),
+        "view_count": stats.get("playCount"),
+        "like_count": stats.get("diggCount"),
+        "uploader": author.get("uniqueId") or author.get("nickname"),
+        "description": meta.get("desc"),
+    }
+
+
+def download_video_gallery_dl(url, out_path):
+    out_dir = os.path.dirname(out_path)
+    filename = os.path.basename(out_path)
+    cmd = ["gallery-dl", "-D", out_dir, "-o", f"filename={filename}"]
+    if COOKIES_FILE:
+        cmd += ["--cookies", COOKIES_FILE]
+    cmd.append(url)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0 or not os.path.exists(out_path):
+        raise RuntimeError((result.stderr or "gallery-dl no genero el archivo esperado")[-800:])
+
+
 def extract_audio(video_path, audio_path):
     cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "libmp3lame", audio_path]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -500,8 +539,14 @@ def process_video(video_id, url, notas_manuales=None):
         video_path = os.path.join(tmp_dir, "video.mp4")
         audio_path = os.path.join(tmp_dir, "audio.mp3")
 
-        meta = get_metadata(url, tmp_dir)
-        download_video(url, video_path)
+        try:
+            meta = get_metadata(url, tmp_dir)
+            download_video(url, video_path)
+        except Exception as yt_dlp_error:
+            print(f"[{video_id}] yt-dlp fallo ({yt_dlp_error}), probando con gallery-dl...", flush=True)
+            meta = get_metadata_gallery_dl(url, tmp_dir)
+            download_video_gallery_dl(url, video_path)
+
         extract_audio(video_path, audio_path)
         frame_files = extract_frames(video_path, tmp_dir)
 

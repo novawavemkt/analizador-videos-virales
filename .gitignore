@@ -11,6 +11,9 @@ server/analizador.db
 server/.env
 web/.env
 
+# cookies exportadas del navegador (nunca subir - son sesion privada)
+server/*cookies*.txt
+
 # Node / Vite
 web/node_modules/
 web/dist/

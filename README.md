@@ -107,14 +107,57 @@ web/             Frontend (React + Vite)
 
 ## Notas
 
-- Si un link falla al descargar ("Instagram sent an empty media response" o
-  similar), suele ser porque el post requiere estar logueado o no es un
-  vídeo (puede ser un carrusel de fotos).
 - Los vídeos y audios descargados son temporales y se borran tras procesar
   cada uno — solo se guardan de forma permanente la transcripción, el
   informe y 3 fotogramas pequeños.
 - **Nunca subas tu `server/.env`** (ya está en `.gitignore`) ni compartas tu
   API key con nadie — cada persona que use esta herramienta debe generar la suya.
+
+## Problemas conocidos
+
+### "TikTok: Unexpected response from webpage request"
+
+A veces TikTok bloquea las peticiones de `yt-dlp` (le pasa a **todo el mundo**
+que use yt-dlp, no es un problema de esta app ni de tu configuración). Se
+puede confirmar así: si el mismo error aparece incluso con la última versión
+de yt-dlp y con cookies configuradas, es un fallo temporal del extractor de
+TikTok en yt-dlp — hay que esperar a que lo arreglen (yt-dlp se actualiza muy
+seguido, normalmente en días). Mientras tanto, Instagram no suele verse
+afectado.
+
+Para comprobar si ya hay arreglo:
+```bash
+pip install --upgrade yt-dlp
+```
+
+### "Instagram sent an empty media response" / posts que no descargan
+
+Suele ser porque el post requiere estar logueado, o no es un vídeo (puede ser
+un carrusel de fotos). En ambos casos, no hay solución automática — hay que
+rellenar esa fila a mano.
+
+### Usar cookies para evitar bloqueos ("necesitas iniciar sesión")
+
+Si un link falla porque requiere sesión iniciada, puedes darle a `yt-dlp` las
+cookies de una cuenta logueada, en `server/.env`:
+
+- **Recomendado en Windows** (evita problemas de cifrado de Chromium):
+  exporta las cookies con una extensión del navegador (ej. "Get cookies.txt
+  LOCALLY"), guarda el archivo en `server/` y pon:
+  ```
+  COOKIES_FILE=nombre_del_archivo.txt
+  ```
+- **Alternativa**: leer directo del navegador (requiere tenerlo
+  **completamente cerrado** al analizar un vídeo — Chrome/Brave/Edge
+  bloquean su base de cookies mientras están abiertos):
+  ```
+  COOKIES_FROM_BROWSER=chrome
+  ```
+
+**Importante**: después de cambiar `server/.env`, hay que **reiniciar el
+backend** (parar y volver a lanzar `uvicorn`) para que recoja el cambio — a
+diferencia de los archivos `.py`, editar `.env` no dispara un recargado
+automático.
 
 ## Licencia
 

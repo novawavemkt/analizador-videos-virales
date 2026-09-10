@@ -201,8 +201,27 @@ veredicto (deja pasa_angulo/pasa_avatar en null en el JSON).
 CLASSIFICATION_SYSTEM_PROMPT = MASTER_PROMPT + TECHNICAL_ADDENDUM
 
 
+# TikTok (y a veces Instagram) bloquean peticiones anonimas de yt-dlp con
+# "Unexpected response from webpage request". Usar cookies de una sesion
+# logueada suele arreglarlo. Dos formas, configurables por .env:
+#   COOKIES_FILE=ruta/a/cookies.txt   -> mas fiable en Windows (evita el
+#     cifrado DPAPI de Chromium), exportado con una extension del navegador.
+#   COOKIES_FROM_BROWSER=brave        -> lee directo del navegador (requiere
+#     tenerlo completamente cerrado). Si ambas estan definidas, gana COOKIES_FILE.
+COOKIES_FILE = os.environ.get("COOKIES_FILE", "").strip()
+COOKIES_FROM_BROWSER = os.environ.get("COOKIES_FROM_BROWSER", "").strip()
+
+
+def _cookie_args():
+    if COOKIES_FILE:
+        return ["--cookies", COOKIES_FILE]
+    if COOKIES_FROM_BROWSER:
+        return ["--cookies-from-browser", COOKIES_FROM_BROWSER]
+    return []
+
+
 def get_metadata(url, workdir):
-    cmd = ["yt-dlp", "-J", "--no-warnings", url]
+    cmd = ["yt-dlp", "-J", "--no-warnings", *_cookie_args(), url]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
     if result.returncode != 0:
         raise RuntimeError(result.stderr[-800:])
@@ -210,7 +229,7 @@ def get_metadata(url, workdir):
 
 
 def download_video(url, out_path):
-    cmd = ["yt-dlp", "-f", "mp4/best", "-o", out_path, "--no-warnings", url]
+    cmd = ["yt-dlp", "-f", "mp4/best", "-o", out_path, "--no-warnings", *_cookie_args(), url]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 

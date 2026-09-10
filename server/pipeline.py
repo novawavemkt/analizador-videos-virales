@@ -356,12 +356,14 @@ def get_metadata_gallery_dl(url, workdir):
     stats = meta.get("stats", {})
     video = meta.get("video", {})
     author = meta.get("author", {})
+    music = meta.get("music", {}) or {}
     return {
         "duration": video.get("duration"),
         "view_count": stats.get("playCount"),
         "like_count": stats.get("diggCount"),
         "uploader": author.get("uniqueId") or author.get("nickname"),
         "description": meta.get("desc"),
+        "music": {"title": music.get("title"), "original": music.get("original")},
     }
 
 
@@ -408,9 +410,70 @@ def transcribe_with_segments(client, mp3_path):
     return result.text, segments
 
 
+def detect_music(meta):
+    """Devuelve una frase sobre el audio usado: sonido original vs. tema de
+    terceros (posible sonido de tendencia). '(no disponible)' si no hay dato."""
+    music = meta.get("music")
+    if isinstance(music, dict) and music.get("title"):
+        title = music["title"]
+        if music.get("original") or "original" in title.lower():
+            return f"sonido original ('{title}') - montado sobre audio propio, no sobre un trending"
+        return f"tema de terceros: '{title}' - puede ser un sonido de tendencia (verificar en la plataforma)"
+    track = meta.get("track") or (meta.get("artists") or [None])[0]
+    if track:
+        return f"tema: '{track}'"
+    return "(no disponible)"
+
+
+def analyze_audio(audio_path, transcript, segments):
+    """Metricas objetivas del audio calculadas con ffmpeg + los segmentos de
+    Whisper. No usa IA. Devuelve un dict con lo que se pueda medir."""
+    features = {}
+
+    try:
+        dur = float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip())
+    except Exception:
+        dur = None
+
+    speech = sum(max(0.0, s["end"] - s["start"]) for s in segments) if segments else 0.0
+    words = len((transcript or "").split())
+    if speech > 0:
+        features["palabras_por_minuto"] = round(words / speech * 60)
+    if dur and dur > 0:
+        features["ratio_habla"] = round(speech / dur, 2)  # 1.0 = habla todo el rato; <0.6 = mucho silencio o musica
+
+    gaps = [round(b["start"] - a["end"], 1) for a, b in zip(segments, segments[1:]) if b["start"] - a["end"] > 0.35]
+    if gaps:
+        features["pausas_notables"] = len(gaps)
+        features["pausa_mas_larga_seg"] = max(gaps)
+
+    try:
+        vol = subprocess.run(
+            ["ffmpeg", "-i", audio_path, "-af", "volumedetect", "-f", "null", "-"],
+            capture_output=True, text=True,
+        ).stderr
+        mean = re.search(r"mean_volume:\s*(-?[\d.]+) dB", vol)
+        peak = re.search(r"max_volume:\s*(-?[\d.]+) dB", vol)
+        if mean:
+            features["volumen_medio_db"] = float(mean.group(1))
+        if peak:
+            features["volumen_max_db"] = float(peak.group(1))
+        if mean and peak:
+            features["margen_pico_db"] = round(float(peak.group(1)) - float(mean.group(1)), 1)
+    except Exception:
+        pass
+
+    return features
+
+
 def classify_video(
     client, transcript_segments, frame_paths, meta, url,
     notas_manuales=None, autor=None, video_id=None, perfil_cliente=None,
+    audio_features=None,
 ):
     segments_text = "\n".join(
         f"[{s['start']:.1f}s - {s['end']:.1f}s] {s['text']}" for s in transcript_segments
@@ -422,10 +485,19 @@ def classify_video(
             f"autor: {autor or '(no disponible)'}",
             f"duracion_segundos: {meta.get('duration')}",
             f"caption: {meta.get('description') or '(no disponible)'}",
-            f"audio_usado: {(meta.get('music') or {}).get('title') if isinstance(meta.get('music'), dict) else meta.get('track') or '(no disponible)'}",
+            f"audio_usado: {detect_music(meta)}",
         ]
     )
     metricas_text = f"vistas: {meta.get('view_count')}, likes: {meta.get('like_count')} (guardados/compartidos/comentarios no disponibles via yt-dlp)"
+
+    if audio_features:
+        af = audio_features
+        audio_text = "\n".join(f"  {k}: {v}" for k, v in af.items()) + """
+  (referencia: palabras_por_minuto ~130-160 = ritmo natural, >180 = acelerado, <110 = lento;
+   ratio_habla <0.6 = mucho silencio o musica de fondo; margen_pico_db <6 = mezcla plana/comprimida,
+   >18 = dinamica amplia; volumen_medio_db muy bajo (< -26) = audio flojo)"""
+    else:
+        audio_text = "(no se pudieron calcular metricas de audio)"
 
     memoria_cliente = get_client_memory(autor, video_id) if autor else None
     memoria_text = (
@@ -441,6 +513,9 @@ texto_en_pantalla:
 
 metadata:
 {metadata_text}
+
+audio_features (medidas objetivas del audio, calculadas con ffmpeg + timestamps de Whisper - usalas en la seccion 4 "Audio" en vez de adivinar):
+{audio_text}
 
 metricas_reales:
 {metricas_text}
@@ -666,11 +741,14 @@ def process_video(video_id, url, notas_manuales=None):
         frame_files = extract_frames(video_path, tmp_dir)
 
         transcript, segments = transcribe_with_segments(client, audio_path)
+        audio_features = analyze_audio(audio_path, transcript, segments)
+        print(f"[{video_id}] audio_features: {audio_features} | audio_usado: {detect_music(meta)}", flush=True)
         autor = detect_autor(meta)
         perfil_cliente = get_client_profile(autor)
         classification = classify_video(
             client, segments, frame_files, meta, url, notas_manuales,
             autor=autor, video_id=video_id, perfil_cliente=perfil_cliente,
+            audio_features=audio_features,
         )
 
         save_result(video_id, url, meta, transcript, classification, frame_files, notas_manuales)

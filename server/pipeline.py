@@ -364,7 +364,7 @@ Se adjuntan los fotogramas clave del video (portada/hook y siguientes) como `fra
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frame_b64}"}})
 
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},

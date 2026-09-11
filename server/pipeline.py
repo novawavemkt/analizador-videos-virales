@@ -156,7 +156,7 @@ arriba, debes devolver SOLO un JSON valido (sin texto fuera del JSON) con esta
 forma exacta:
 
 {{
-  "informe_markdown": "<el informe completo: secciones 1 a 9 tal como pide la ESTRUCTURA DE SALIDA, usando los mismos titulos '### 1. Resumen ejecutivo' etc., MAS '### 10. Filtro de angulo y avatar (Nova Wave)' y '### 11. Potencial viral (segun metricas reales)' (ver ambos abajo). Listo para pegar tal cual>",
+  "informe_markdown": "<el informe completo: secciones 1 a 9 tal como pide la ESTRUCTURA DE SALIDA, usando los mismos titulos '### 1. Resumen ejecutivo' etc., MAS '### 10. Filtro de angulo y avatar (Nova Wave)', '### 11. Potencial viral (segun metricas reales)' y '### 12. Analisis de comentarios' (ver los tres abajo). Listo para pegar tal cual>",
   "nivel_consciencia": "<una de: {', '.join(AWARENESS_STAGES)}>",
   "segments": [
     {{"start": <segundos>, "end": <segundos>, "awareness_stage": "<una de las 5 etapas>"}}
@@ -174,7 +174,14 @@ forma exacta:
     "pasa_avatar": <true/false>,
     "explicacion": "<2-4 frases: si no hay perfil_cliente declarado, dilo y pon ambos en null; si lo hay, aplica el filtro de dos preguntas del Modulo 1-2 de Nova Wave: 1) esta idea entra dentro del angulo declarado, 2) el avatar declarado consumiria este contenido facilmente>"
   }},
-  "potencial_viral": <numero 1-10: nota de potencial viral. Si hay metricas_reales, basala PRINCIPALMENTE en el rendimiento real observado (ver seccion de abajo). Si NO hay metricas, estimala por el mecanismo del video>
+  "potencial_viral": <numero 1-10: nota de potencial viral. Si hay metricas_reales, basala PRINCIPALMENTE en el rendimiento real observado (ver seccion de abajo). Si NO hay metricas, estimala por el mecanismo del video>,
+  "analisis_comentarios": {{
+    "disponible": <true/false segun si `comentarios_reales` trae datos>,
+    "sentimiento_general": "<positivo/mixto/negativo/no_disponible>",
+    "temas_recurrentes": ["<tema o pregunta que se repite en varios comentarios>", "..."],
+    "objeciones_detectadas": ["<objecion de compra que aparece en los comentarios, si hay>"],
+    "resumen": "<2-4 frases resumiendo que dice la audiencia real en los comentarios; vacio/null si no hay comentarios>"
+  }}
 }}
 
 Usa "segments" para dividir el video en 2-6 tramos narrativos con timestamps
@@ -212,6 +219,19 @@ Anade al final del informe una seccion `### 11. Potencial viral (segun metricas 
 - Si NO hay metricas: dilo en una linea y da una estimacion de potencial viral
   (1-10) basada solo en el mecanismo del video, marcandola como estimacion.
 El numero que pongas aqui debe coincidir con el campo "potencial_viral" del JSON.
+
+## SECCION 12 — ANALISIS DE COMENTARIOS
+
+Anade al final del informe una seccion `### 12. Analisis de comentarios`:
+- Si `comentarios_reales` trae datos: resume en 3-5 frases el sentimiento
+  general (positivo/mixto/negativo), los 2-4 temas o preguntas que mas se
+  repiten, y cualquier objecion de compra que aparezca (precio, dudas,
+  desconfianza...). Cita 1-2 comentarios textuales representativos entre
+  comillas. No inventes comentarios que no esten en la lista.
+- Si NO hay comentarios disponibles: dilo en una linea (el extractor de esta
+  plataforma no los trajo) y no rellenes con paja.
+Los campos "sentimiento_general", "temas_recurrentes", "objeciones_detectadas"
+y "resumen" del JSON deben ser coherentes con lo que escribas aqui.
 
 ## FILTRO DE ANGULO Y AVATAR (metodologia interna Nova Wave, Modulo 1-2)
 
@@ -325,11 +345,32 @@ def get_instagram_view_count(url):
 
 
 def get_metadata(url, workdir):
-    cmd = ["yt-dlp", "-J", "--no-warnings", *_cookie_args(), url]
+    # --write-comments: yt-dlp incluye los comentarios reales del video en el
+    # JSON (meta["comments"]) cuando el extractor del sitio los soporta - hoy
+    # en dia funciona bien para Instagram, no siempre para TikTok.
+    cmd = ["yt-dlp", "-J", "--write-comments", "--no-warnings", *_cookie_args(), url]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
     if result.returncode != 0:
         raise RuntimeError(result.stderr[-800:])
     return json.loads(result.stdout)
+
+
+def extract_comments(meta, limit=15):
+    """Normaliza meta['comments'] (si el extractor los trajo) a una lista
+    corta, ordenada por likes, lista para guardar y para meter en el prompt."""
+    raw = meta.get("comments") or []
+    cleaned = []
+    for c in raw:
+        text = (c.get("text") or "").strip()
+        if not text:
+            continue
+        cleaned.append({
+            "author": c.get("author") or c.get("author_id") or "",
+            "text": text,
+            "like_count": c.get("like_count") or 0,
+        })
+    cleaned.sort(key=lambda c: c["like_count"], reverse=True)
+    return cleaned[:limit]
 
 
 def download_video(url, out_path):
@@ -473,7 +514,7 @@ def analyze_audio(audio_path, transcript, segments):
 def classify_video(
     client, transcript_segments, frame_paths, meta, url,
     notas_manuales=None, autor=None, video_id=None, perfil_cliente=None,
-    audio_features=None,
+    audio_features=None, comments=None,
 ):
     segments_text = "\n".join(
         f"[{s['start']:.1f}s - {s['end']:.1f}s] {s['text']}" for s in transcript_segments
@@ -488,7 +529,17 @@ def classify_video(
             f"audio_usado: {detect_music(meta)}",
         ]
     )
-    metricas_text = f"vistas: {meta.get('view_count')}, likes: {meta.get('like_count')} (guardados/compartidos/comentarios no disponibles via yt-dlp)"
+    metricas_text = (
+        f"vistas: {meta.get('view_count')}, likes: {meta.get('like_count')}, "
+        f"comentarios totales: {meta.get('comment_count')} (guardados/compartidos no disponibles via yt-dlp)"
+    )
+
+    if comments:
+        comentarios_text = "\n".join(
+            f"  - ({c['like_count']} likes) {c['author']}: {c['text']}" for c in comments
+        )
+    else:
+        comentarios_text = "(no disponibles - el extractor de esta plataforma/video no los expuso)"
 
     if audio_features:
         af = audio_features
@@ -535,6 +586,9 @@ Si hay historial, usalo para dar continuidad: senala si se repiten patrones (pos
 negativos) entre videos de esta cuenta, si aplico alguna recomendacion que ya le diste antes
 (y si funciono, segun las metricas), y evita repetir recomendaciones ya dadas salvo que sigan
 sin resolverse - en ese caso, dilo explicitamente.
+
+comentarios_reales (hasta 15, ordenados por likes; son reacciones reales de la audiencia, no las inventes ni las completes):
+{comentarios_text}
 
 Se adjuntan los fotogramas clave del video (portada/hook y siguientes) como `frames`."""
 
@@ -644,7 +698,7 @@ def mark_error(video_id, message):
     conn.close()
 
 
-def save_result(video_id, url, meta, transcript, classification, frame_files, notas_manuales=None):
+def save_result(video_id, url, meta, transcript, classification, frame_files, notas_manuales=None, comments=None):
     puntuacion = classification.get("puntuacion") or {}
     filtro = classification.get("filtro_angulo_avatar") or {}
 
@@ -685,10 +739,17 @@ def save_result(video_id, url, meta, transcript, classification, frame_files, no
         ),
     )
 
-    # Si es una regeneracion (reanalyze), limpia segmentos/frames anteriores
-    # para no acumular duplicados.
+    # Si es una regeneracion (reanalyze), limpia segmentos/frames/comentarios
+    # anteriores para no acumular duplicados.
     conn.execute("DELETE FROM video_segments WHERE video_id = ?", (video_id,))
     conn.execute("DELETE FROM video_frames WHERE video_id = ?", (video_id,))
+    conn.execute("DELETE FROM video_comments WHERE video_id = ?", (video_id,))
+
+    for i, c in enumerate(comments or []):
+        conn.execute(
+            "INSERT INTO video_comments (video_id, author, text, like_count, ord) VALUES (?, ?, ?, ?, ?)",
+            (video_id, c.get("author"), c.get("text"), c.get("like_count"), i),
+        )
 
     for i, seg in enumerate(classification.get("segments", [])):
         conn.execute(
@@ -742,16 +803,21 @@ def process_video(video_id, url, notas_manuales=None):
 
         transcript, segments = transcribe_with_segments(client, audio_path)
         audio_features = analyze_audio(audio_path, transcript, segments)
-        print(f"[{video_id}] audio_features: {audio_features} | audio_usado: {detect_music(meta)}", flush=True)
+        comments = extract_comments(meta)
+        print(
+            f"[{video_id}] audio_features: {audio_features} | audio_usado: {detect_music(meta)} | "
+            f"comentarios encontrados: {len(comments)}",
+            flush=True,
+        )
         autor = detect_autor(meta)
         perfil_cliente = get_client_profile(autor)
         classification = classify_video(
             client, segments, frame_files, meta, url, notas_manuales,
             autor=autor, video_id=video_id, perfil_cliente=perfil_cliente,
-            audio_features=audio_features,
+            audio_features=audio_features, comments=comments,
         )
 
-        save_result(video_id, url, meta, transcript, classification, frame_files, notas_manuales)
+        save_result(video_id, url, meta, transcript, classification, frame_files, notas_manuales, comments=comments)
     except Exception as e:
         mark_error(video_id, str(e))
     finally:

@@ -123,13 +123,83 @@ def get_video(video_id: int):
         "SELECT id, timestamp_seconds FROM video_frames WHERE video_id = ? ORDER BY timestamp_seconds ASC",
         (video_id,),
     ).fetchall()
+
+    comments = conn.execute(
+        "SELECT id, author, text, like_count FROM video_comments WHERE video_id = ? ORDER BY ord ASC",
+        (video_id,),
+    ).fetchall()
+
+    linked = None
+    if video["linked_video_id"]:
+        linked = conn.execute(
+            """
+            SELECT id, url, platform, status, view_count, like_count, puntuacion_media,
+                   potencial_viral, awareness_overall, hook
+            FROM videos WHERE id = ?
+            """,
+            (video["linked_video_id"],),
+        ).fetchone()
+
     conn.close()
 
     return {
         "video": dict(video),
         "segments": [dict(s) for s in segments],
         "frames": [dict(f) for f in frames],
+        "comments": [dict(c) for c in comments],
+        "linked_video": dict(linked) if linked else None,
     }
+
+
+class LinkVideoRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/videos/{video_id}/link")
+def link_video(video_id: int, body: LinkVideoRequest):
+    """Vincula este video con el mismo video publicado en otra plataforma
+    (ej. Instagram + TikTok del mismo contenido). Si la URL ya esta analizada,
+    reutiliza esa fila; si no, crea un analisis nuevo y lo enlaza."""
+    url = body.url.strip()
+    if not url.startswith("http"):
+        raise HTTPException(400, "URL invalida.")
+
+    conn = get_connection()
+    origin = conn.execute("SELECT id FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not origin:
+        conn.close()
+        raise HTTPException(404, "No encontrado.")
+
+    existing = conn.execute("SELECT id FROM videos WHERE url = ?", (url,)).fetchone()
+    if existing:
+        other_id = existing["id"]
+    else:
+        cur = conn.execute("INSERT INTO videos (url, status) VALUES (?, 'pending')", (url,))
+        other_id = cur.lastrowid
+        thread = threading.Thread(target=process_video, args=(other_id, url, None), daemon=True)
+        thread.start()
+
+    conn.execute("UPDATE videos SET linked_video_id = ?, updated_at = datetime('now') WHERE id = ?", (other_id, video_id))
+    conn.execute("UPDATE videos SET linked_video_id = ?, updated_at = datetime('now') WHERE id = ?", (video_id, other_id))
+    conn.commit()
+    conn.close()
+    return {"linked_video_id": other_id}
+
+
+@app.post("/api/videos/{video_id}/unlink")
+def unlink_video(video_id: int):
+    conn = get_connection()
+    video = conn.execute("SELECT linked_video_id FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not video:
+        conn.close()
+        raise HTTPException(404, "No encontrado.")
+    other_id = video["linked_video_id"]
+    conn.execute("UPDATE videos SET linked_video_id = NULL WHERE id = ?", (video_id,))
+    if other_id:
+        conn.execute("UPDATE videos SET linked_video_id = NULL WHERE id = ?", (other_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 @app.get("/api/videos/{video_id}/frames/{frame_id}")

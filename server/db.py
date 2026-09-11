@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS videos (
     filtro_avatar_pasa  INTEGER,
     filtro_explicacion  TEXT,
     potencial_viral     REAL,
+    linked_video_id     INTEGER REFERENCES videos(id) ON DELETE SET NULL,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -61,6 +62,15 @@ CREATE TABLE IF NOT EXISTS video_frames (
     timestamp_seconds REAL NOT NULL,
     image_bytes       BLOB NOT NULL,
     content_type      TEXT NOT NULL DEFAULT 'image/jpeg'
+);
+
+CREATE TABLE IF NOT EXISTS video_comments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id    INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    author      TEXT,
+    text        TEXT NOT NULL,
+    like_count  INTEGER,
+    ord         INTEGER NOT NULL
 );
 """
 
@@ -92,6 +102,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE videos ADD COLUMN filtro_explicacion TEXT")
     if "potencial_viral" not in existing_cols:
         conn.execute("ALTER TABLE videos ADD COLUMN potencial_viral REAL")
+    if "linked_video_id" not in existing_cols:
+        conn.execute("ALTER TABLE videos ADD COLUMN linked_video_id INTEGER REFERENCES videos(id) ON DELETE SET NULL")
 
 
 def init_db():

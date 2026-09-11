@@ -24,7 +24,28 @@ export interface VideoData {
   filtro_avatar_pasa: 0 | 1 | null;
   filtro_explicacion: string | null;
   potencial_viral: number | null;
+  linked_video_id: number | null;
   created_at: string;
+}
+
+export interface LinkedVideoSummary {
+  id: number;
+  url: string;
+  platform: string | null;
+  status: string;
+  view_count: number | null;
+  like_count: number | null;
+  puntuacion_media: number | null;
+  potencial_viral: number | null;
+  awareness_overall: string | null;
+  hook: string | null;
+}
+
+export interface Comment {
+  id: number;
+  author: string | null;
+  text: string;
+  like_count: number | null;
 }
 
 export interface ClientProfile {
@@ -84,9 +105,32 @@ export async function listVideos(): Promise<VideoData[]> {
 
 export async function getVideo(
   id: string
-): Promise<{ video: VideoData; segments: Segment[]; frames: Frame[] }> {
+): Promise<{
+  video: VideoData;
+  segments: Segment[];
+  frames: Frame[];
+  comments: Comment[];
+  linked_video: LinkedVideoSummary | null;
+}> {
   const res = await fetch(`${API_BASE}/api/videos/${id}`);
   return res.json();
+}
+
+export async function linkVideo(id: number, url: string): Promise<{ linked_video_id: number }> {
+  const res = await fetch(`${API_BASE}/api/videos/${id}/link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "No se pudo vincular el vídeo.");
+  }
+  return res.json();
+}
+
+export async function unlinkVideo(id: number): Promise<void> {
+  await fetch(`${API_BASE}/api/videos/${id}/unlink`, { method: "POST" });
 }
 
 export function frameUrl(videoId: number, frameId: number) {

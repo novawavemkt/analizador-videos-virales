@@ -8,9 +8,13 @@ import {
   listVideos,
   getClientProfile,
   saveClientProfile,
+  linkVideo,
+  unlinkVideo,
   type VideoData,
   type Segment,
   type Frame,
+  type Comment,
+  type LinkedVideoSummary,
 } from "../api";
 import { AWARENESS_LABELS, AWARENESS_COLORS } from "../awareness";
 
@@ -27,6 +31,11 @@ export default function VideoDetail() {
   const [posicionamiento, setPosicionamiento] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [linkedVideo, setLinkedVideo] = useState<LinkedVideoSummary | null>(null);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -35,6 +44,8 @@ export default function VideoDetail() {
     setSegments(data.segments);
     setFrames(data.frames);
     setNotas(data.video.notas_manuales || "");
+    setComments(data.comments || []);
+    setLinkedVideo(data.linked_video || null);
   }, [id]);
 
   useEffect(() => {
@@ -75,6 +86,27 @@ export default function VideoDetail() {
     setSavingProfile(false);
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 2000);
+  }
+
+  async function handleLink() {
+    if (!video || !linkUrl.trim()) return;
+    setLinking(true);
+    setLinkError(null);
+    try {
+      await linkVideo(video.id, linkUrl.trim());
+      setLinkUrl("");
+      await fetchData();
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "Error desconocido.");
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  async function handleUnlink() {
+    if (!video) return;
+    await unlinkVideo(video.id);
+    setLinkedVideo(null);
   }
 
   async function handleRegenerate() {
@@ -152,6 +184,49 @@ export default function VideoDetail() {
           {video.filtro_explicacion}
         </p>
       )}
+
+      <section>
+        <h2>Comparativa entre plataformas</h2>
+        {linkedVideo ? (
+          <>
+            <p className="muted small">
+              Este vídeo está vinculado con su versión en{" "}
+              <Link to={`/videos/${linkedVideo.id}`}>{linkedVideo.platform || "otra plataforma"}</Link>.
+            </p>
+            <div className="tags small">
+              {linkedVideo.view_count != null && <span className="badge">{linkedVideo.view_count.toLocaleString("es-ES")} vistas</span>}
+              {linkedVideo.like_count != null && <span className="badge">{linkedVideo.like_count.toLocaleString("es-ES")} likes</span>}
+              {linkedVideo.puntuacion_media != null && <span className="badge">Craft {linkedVideo.puntuacion_media.toFixed(1)}/10</span>}
+              {linkedVideo.potencial_viral != null && <span className="badge">Viral {linkedVideo.potencial_viral.toFixed(1)}/10</span>}
+              {linkedVideo.status !== "done" && <span className="badge">{linkedVideo.status}</span>}
+            </div>
+            <div className="row">
+              <button type="button" onClick={handleUnlink}>
+                Quitar vínculo
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="muted small">
+              ¿Este mismo vídeo está también publicado en otra plataforma (Instagram/TikTok)? Pega su
+              link para verlo en el mismo sitio y comparar vistas, likes y puntuaciones entre las dos.
+            </p>
+            <div className="row">
+              <input
+                type="url"
+                placeholder="https://www.tiktok.com/@usuario/video/... o link de Instagram"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+              />
+              <button type="button" onClick={handleLink} disabled={linking || !linkUrl.trim()}>
+                {linking ? "Vinculando..." : "Vincular"}
+              </button>
+            </div>
+            {linkError && <p className="error">{linkError}</p>}
+          </>
+        )}
+      </section>
 
       {clientHistory.length > 0 && (
         <section>
@@ -281,6 +356,26 @@ export default function VideoDetail() {
           </button>
         </div>
       </section>
+
+      {comments.length > 0 && (
+        <section>
+          <h2>Comentarios reales ({comments.length})</h2>
+          <div className="list">
+            {comments.map((c) => (
+              <div key={c.id} className="list-item">
+                <div className="row" style={{ justifyContent: "space-between", marginTop: 0 }}>
+                  <strong>{c.author || "anónimo"}</strong>
+                  {c.like_count != null && <span className="muted small">{c.like_count} likes</span>}
+                </div>
+                <p className="muted" style={{ margin: "0.25rem 0 0" }}>{c.text}</p>
+              </div>
+            ))}
+          </div>
+          <p className="muted small" style={{ marginTop: "0.5rem" }}>
+            El informe de arriba ya incluye un análisis de estos comentarios (sección 12).
+          </p>
+        </section>
+      )}
 
       {video.transcript && (
         <section>

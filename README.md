@@ -94,49 +94,16 @@ Instagram y dale a "Analizar".
 ## Estructura del proyecto
 
 ```
-server/               Backend (FastAPI + SQLite)
-  main.py             Endpoints de la API
-  pipeline.py         Descarga, transcripcion y clasificacion (yt-dlp, ffmpeg, OpenAI)
-  audit_sheets.py     Lectura de Google Sheets (Feature 2)
-  audit_parser.py     Parseo de la plantilla de auditoria a JSON
-  audit_report.py     Renderizado del informe (Jinja2)
-  templates/          Plantilla HTML del informe de auditoria
-  db.py               Esquema y conexion a SQLite
-  analizador.db       Base de datos local (se crea sola, no se sube al repo)
+server/          Backend (FastAPI + SQLite)
+  main.py        Endpoints de la API
+  pipeline.py    Descarga, transcripcion y clasificacion (yt-dlp, ffmpeg, OpenAI)
+  db.py          Esquema y conexion a SQLite
+  analizador.db  Base de datos local (se crea sola, no se sube al repo)
 
-web/                  Frontend (React + Vite)
-  src/pages/          Dashboard, detalle de video, historial, auditoria
-  src/api.ts          Cliente HTTP hacia el backend
+web/             Frontend (React + Vite)
+  src/pages/     Dashboard, detalle de video, historial
+  src/api.ts     Cliente HTTP hacia el backend
 ```
-
-## Feature 2 — Informe de auditoría desde Google Sheets
-
-Genera un informe visual de auditoría de marca para cliente a partir de un
-Google Sheet ya rellenado a mano (la plantilla de auditoría). **No analiza ni
-interpreta nada** — el criterio lo escribe el humano en la hoja; la app solo
-transforma esos datos en un documento visual. No usa ningún LLM.
-
-### Setup (una vez)
-
-1. En https://console.cloud.google.com crea un proyecto, activa la **Google
-   Sheets API**, y crea una **cuenta de servicio**. Descarga su clave JSON.
-2. Guarda ese JSON en `server/` (ej. `server/service-account.json`) y pon la
-   ruta en `server/.env`:
-   ```
-   GOOGLE_SERVICE_ACCOUNT_FILE=service-account.json
-   ```
-   (Está en `.gitignore`, no se sube al repo.)
-3. Comparte (permiso de **lector**) la carpeta de Drive donde viven los sheets
-   de auditoría con el email de la cuenta de servicio (aparece en el JSON como
-   `client_email`).
-
-### Uso
-
-Pestaña **"Auditoría"** → pega el link de un Sheet (una copia de la plantilla
-rellenada para un cliente) → "Generar informe". La app ignora las pestañas con
-`EJEMPLO` en el nombre y usa solo las de trabajo. El informe queda guardado y
-accesible desde **"Informes"**; se puede abrir a pantalla completa, descargar
-como HTML, o volver a generar desde el Sheet ("Actualizar desde el Sheet").
 
 ## Notas
 

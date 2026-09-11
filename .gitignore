@@ -14,10 +14,6 @@ web/.env
 # cookies exportadas del navegador (nunca subir - son sesion privada)
 server/*cookies*.txt
 
-# credenciales de la cuenta de servicio de Google (Feature 2 - auditoria)
-server/service-account*.json
-server/*credentials*.json
-
 # Node / Vite
 web/node_modules/
 web/dist/

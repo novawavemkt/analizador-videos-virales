@@ -62,16 +62,6 @@ CREATE TABLE IF NOT EXISTS video_frames (
     image_bytes       BLOB NOT NULL,
     content_type      TEXT NOT NULL DEFAULT 'image/jpeg'
 );
-
--- Feature 2: informes de auditoria generados desde un Google Sheet.
-CREATE TABLE IF NOT EXISTS audit_reports (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    sheet_url  TEXT NOT NULL,
-    cliente    TEXT,
-    data_json  TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 """
 
 
